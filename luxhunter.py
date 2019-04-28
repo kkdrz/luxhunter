@@ -8,6 +8,7 @@ import smtplib
 import string
 import argparse
 import getpass
+from datetime import datetime, timedelta
 
 
 def notify(email_text, dst_email):
@@ -19,7 +20,7 @@ def notify(email_text, dst_email):
     smtpobj = smtplib.SMTP_SSL('poczta.o2.pl', 465)
 
     smtpobj.ehlo()
-    smtpobj.login('abusemenot@tlen.pl', 'ABUSEMENOTLUXMED')
+    smtpobj.login('abusemenot@tlen.pl', 'ABUSEMENOTLUXMED123')
 
     from_ = 'powiadomienie@o-wizycie.pl',
     to_ = dst_email
@@ -30,7 +31,7 @@ def notify(email_text, dst_email):
     smtpobj.quit()
 
 
-def wtf(text, file_path='log.txt'):
+def wtf(text, file_path='log.html'):
     """
     Write To File
     :param text: text which will be written to file
@@ -77,7 +78,7 @@ def log_out(session):
         print 'Logout failed'
 
 
-def find(session, service_id, date_from, date_to, doctor_id='0', city_id='5', clinic_id='', time_option='Any'):
+def find(session, service_id, date_from, date_to, doctor_id, city_id, clinic_id, time_option, payer_id):
     """
     Find appointment.
     :param session: session object is created during log in and passed to the function
@@ -85,39 +86,57 @@ def find(session, service_id, date_from, date_to, doctor_id='0', city_id='5', cl
     :param date_from: date range start
     :param date_to: date range end
     :param doctor_id: not all of them are worth your health ;)
-    :param city_id: default is Warsaw
-    :param clinic_id: nearest is the best
+    :param city_id:
+    :param clinic_id: 
     :param time_option: Morning, Afternoon, Evening or Any
+    :param payer_id: 
     :return:
     """
 
     main_page_url = 'https://portalpacjenta.luxmed.pl/PatientPortal/'
-    find_page_url = 'https://portalpacjenta.luxmed.pl/PatientPortal/Reservations/Reservation/Find'
+    search_POST_url = 'https://portalpacjenta.luxmed.pl/PatientPortal/Reservations/Reservation/PartialSearch'
+    search_page_url = 'https://portalpacjenta.luxmed.pl/PatientPortal/Reservations/Coordination/Activity?actionId=90'
 
+    main_page = session.get(main_page_url)
+    search_page = session.get(search_page_url)
+
+    parser = etree.HTMLParser()
+
+    main_page_tree = etree.fromstring(main_page.text, parser)
+    search_page_tree = etree.fromstring(search_page.text, parser)
+
+    verification_token = main_page_tree.xpath('//*[@id="PageMainContainer"]/input/@value')
+
+    coordinationActivityId = search_page_tree.xpath('//*[@id="CoordinationActivityId"]/@value')
+    isFFS = search_page_tree.xpath('//*[@id="IsFFS"]/@value')
+    isDisabled = search_page_tree.xpath('//*[@id="IsDisabled"]/@value')
+    payersCount = search_page_tree.xpath('//*[@id="PayersCount"]/@value')    
+    
     search_params = {
+        '__RequestVerificationToken': verification_token[0],
+        'CoordinationActivityId': coordinationActivityId[0],
+        'IsFFS': isFFS[0],
+        'IsDisabled': isDisabled[0],
+        'PayersCount': payersCount[0],
         'DateOption': 'SelectedDate',
+        'FilterType': 'Coordination',
+        'MaxPeriodLength': '0',
+        'PayersCount': '0',
+        'FromDate': date_from,
+        'ToDate': date_to,
+        'CustomRangeSelected': 'true',
         'CityId': city_id,
-        'ClinicId': clinic_id,
         'ServiceId': service_id,
-        'DoctorMultiIdentyfier': "%s-%s-%s" % (doctor_id, service_id, clinic_id),
-        'PayedOption': 'Free',
-        'SearchFirstFree': 'false',
-        'DateFrom': date_from,
-        'DateTo': date_to,
-        'TimeOption': time_option}
+        'TimeOption': '0',
+        'PayerId': payer_id,
+        'LanguageId': '10'
+        }
 
     print search_params
 
-    r = session.get(main_page_url)
+    r = session.post(search_POST_url, data=search_params)
 
-    parser = etree.HTMLParser()
-    tree = etree.fromstring(r.text, parser)
-
-    verification_token = tree.xpath('//form//input[@name="__RequestVerificationToken"]/@value')
-    search_params['__RequestVerificationToken'] = verification_token[0]
-
-    r = session.post(find_page_url, data=search_params)
-    # wtf(r.text)
+    wtf(unicode(r.text))
 
     if is_appointment_available(r.text):
         print 'Hurray! Visit has been found :)'
@@ -141,14 +160,6 @@ def is_appointment_available(html_page):
     else:
         return True
 
-
-def parse_results(html_page):
-    pass
-
-def book_appointment():
-    pass
-
-
 def main():
     """
     Main function where everything happens.
@@ -158,23 +169,28 @@ def main():
     4. Logout
     :return:
     """
+
+    today_date = datetime.today().strftime('%Y-%m-%d')
+    month_later_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+
     parser = argparse.ArgumentParser(description='Luxmed appointment availability checker.')
-    parser.add_argument('lxlogin', help='Luxmend account login')
-    parser.add_argument('lxpass', help='Luxmed account password')
-    parser.add_argument('email', help='email address')
-    parser.add_argument('datefrom', help='Date format dd-mm-yyyy')
-    parser.add_argument('dateto', help='Date format dd-mm-yyyy')
-    parser.add_argument('serviceid', help='Type of specialist. ID should be taken from csv in repository.')
-    parser.add_argument('doctorid', help='Doctor id. ID should be take from csv in repository.')
-    parser.add_argument('cityid', help='City id. ID should be taken from csv in repository.')
-    parser.add_argument('clinicid', help='Clinic id. ID should be taken from csv in repository.')
-    parser.add_argument('timeoption', help='Time option from range: Morning, Afternoon, Evening or Any')
+    parser.add_argument('--lxlogin', help='Luxmend account login', required=True)
+    parser.add_argument('--lxpass', help='Luxmed account password', required=True)
+    parser.add_argument('--email', help='Email address', required=True)
+    parser.add_argument('--payerid', help='Payer ID', required=True)
+    parser.add_argument('--datefrom', help='Date format dd-mm-yyyy. Default is current date.', default=today_date, required=False)
+    parser.add_argument('--dateto', help='Date format dd-mm-yyyy. Default is month from today.', default=month_later_date, required=False)
+    parser.add_argument('--serviceid', help='Type of specialist. ID should be taken from csv in repository.', required=False)
+    parser.add_argument('--doctorid', help='Doctor id. ID should be take from csv in repository.', default=0, required=False)
+    parser.add_argument('--cityid', help='City id. ID should be taken from csv in repository.', required=True)
+    parser.add_argument('--clinicid', help='Clinic id. ID should be taken from csv in repository.', default='')
+    parser.add_argument('--timeoption', help='Time option from range: Morning, Afternoon, Evening or Any', default='Any')
     args = parser.parse_args()
 
     session = log_in(args.lxlogin, args.lxpass)
-    isav = find(session, service_id=args.serviceid, date_from=args.datefrom, date_to=args.dateto, doctor_id=args.doctorid, city_id=args.cityid, clinic_id=args.clinicid, time_option=args.timeoption)
-    if isav:
-        notify('Wizyta znaleziona dla uzytkownika: %s' % args.lxlogin, args.email)
+    isav = find(session, service_id=args.serviceid, date_from=args.datefrom, date_to=args.dateto, doctor_id=args.doctorid, city_id=args.cityid, clinic_id=args.clinicid, time_option=args.timeoption, payer_id=args.payerid)
+    #if isav:
+        #notify('Wizyta znaleziona dla uzytkownika: %s' % args.lxlogin, args.email)
     log_out(session)
 
 if __name__ == '__main__':
