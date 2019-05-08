@@ -132,19 +132,16 @@ def find(session, service_id, date_from, date_to, doctor_id, city_id, clinic_id,
         'LanguageId': '10'
         }
 
-    print search_params
+    result = session.post(search_POST_url, data=search_params)
 
-    r = session.post(search_POST_url, data=search_params)
+    wtf(unicode(result.text))
 
-    wtf(unicode(r.text))
-
-    if is_appointment_available(r.text):
+    if is_appointment_available(result.text):
         print 'Hurray! Visit has been found :)'
-        return True
+        return True, result.text.encode('utf-8')
     else:
         print 'Pity :( Visit has not been found.'
-        return False
-
+        return False, ""
 
 
 def is_appointment_available(html_page):
@@ -153,9 +150,9 @@ def is_appointment_available(html_page):
     :param html_page: web page source
     :return: True if you are lucky
     """
-    if 'Brak dostępnych terminów w dniach'.decode('utf-8') in unicode(html_page):
+    if 'Brak dostępnych termin'.decode('utf-8') in unicode(html_page):
         return False
-    if 'Niestety, nie dysponujemy terminami wizyt we wskazanym zakresie w rezerwacji'.decode('utf-8') in html_page:
+    if 'Nowe terminy wizyt pojawiaj'.decode('utf-8') in unicode(html_page):
         return False
     else:
         return True
@@ -174,7 +171,7 @@ def main():
     month_later_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
 
     parser = argparse.ArgumentParser(description='Luxmed appointment availability checker.')
-    parser.add_argument('--lxlogin', help='Luxmend account login', required=True)
+    parser.add_argument('--lxlogin', help='Luxmed account login', required=True)
     parser.add_argument('--lxpass', help='Luxmed account password', required=True)
     parser.add_argument('--email', help='Email address', required=True)
     parser.add_argument('--payerid', help='Payer ID', required=True)
@@ -188,9 +185,10 @@ def main():
     args = parser.parse_args()
 
     session = log_in(args.lxlogin, args.lxpass)
-    isav = find(session, service_id=args.serviceid, date_from=args.datefrom, date_to=args.dateto, doctor_id=args.doctorid, city_id=args.cityid, clinic_id=args.clinicid, time_option=args.timeoption, payer_id=args.payerid)
-    #if isav:
-        #notify('Wizyta znaleziona dla uzytkownika: %s' % args.lxlogin, args.email)
+    isav, result = find(session, service_id=args.serviceid, date_from=args.datefrom, date_to=args.dateto, doctor_id=args.doctorid, city_id=args.cityid, clinic_id=args.clinicid, time_option=args.timeoption, payer_id=args.payerid)
+    
+    if isav:
+        notify('Wizyta znaleziona: %s' % result, args.email)
     log_out(session)
 
 if __name__ == '__main__':
