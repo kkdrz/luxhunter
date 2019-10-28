@@ -128,6 +128,7 @@ def find(session, service_id, date_from, date_to, doctor_id, city_id, clinic_id,
         'CityId': city_id,
         'ServiceId': service_id,
         'TimeOption': '0',
+        'DoctorMultiIdentyfier': doctor_id,
         'PayerId': payer_id,
         'LanguageId': '10'
         }
